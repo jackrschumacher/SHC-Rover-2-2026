@@ -5,3 +5,9 @@
 *Zone.Identifier
 
 /firmware/Pico_RP2040_Xbox_Bench.uf2
+
+# colcon
+/ros2_ws/build/
+/ros2_ws/install/
+/ros2_ws/log/
+__pycache__/

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read real Pico telemetry without enabling outputs. Stop ROS bridge first."""
+"""Read real Pico telemetry without enabling outputs. Stop the onboard node first."""
 import argparse
 import json
 import math
