@@ -1,4 +1,3 @@
-import json
 import time
 
 import rclpy
@@ -8,7 +7,7 @@ from rover_interfaces.msg import JointCommand, ArmStatus, SensorReadings
 
 from .ground_station_ros import live_qos
 from .rover_arm import RoverArm
-from .protocol import validate_command, valid_sensor_packet
+from .protocol import encode_command, parse_line, validate_command
 from .ros_messages import status_message, sensor_message
 
 
@@ -53,7 +52,7 @@ class ArmBridge(Node):
             self.write_command("LINK_LOST")
 
         self.poll_timer = self.create_timer(0.02, self.poll)
-        self.status_timer = self.create_timer(0.25, self.query_status)
+        self.status_timer = self.create_timer(0.25, self.publish_status)
 
     def operator_online(self):
         return self.last_heartbeat is not None and time.monotonic() - self.last_heartbeat < 0.8
@@ -100,12 +99,11 @@ class ArmBridge(Node):
         self.write_command(request)
 
     def write_command(self, command):
-        command = validate_command(command)
         if self.arm is not None:
-            self.status_data = self.arm.handle_command(command)
+            self.status_data = self.arm.handle_command(validate_command(command))
         elif self.serial is not None:
             try:
-                frame = (json.dumps(command) + "\n").encode("ascii")
+                frame = encode_command(command)
                 if self.serial.write(frame) != len(frame):
                     raise OSError("Incomplete serial write")
             except Exception as exc:
@@ -137,36 +135,20 @@ class ArmBridge(Node):
             while b"\n" in self.buffer:
                 line, self.buffer = self.buffer.split(b"\n", 1)
                 try:
-                    status = json.loads(line.decode("utf-8"))
-                    if valid_sensor_packet(status):
-                        self.sensor_publisher.publish(sensor_message(status))
-                        continue
-                    if (isinstance(status, dict) and
-                            isinstance(status.get("enabled"), bool) and
-                            isinstance(status.get("ready"), bool) and
-                            status.get("mode") in ("hardware", "simulation")):
-                        status_message(status)  # Check before accepting this reply.
-                        self.status_data = status
+                    kind, data = parse_line(line)
+                    if kind == "sensors":
+                        self.sensor_publisher.publish(sensor_message(data))
+                    else:
+                        status_message(data)  # Check before accepting this reply.
+                        self.status_data = data
                         self.last_pico_status = time.monotonic()
-                except (ValueError):
-                    self.get_logger().warning("Ignoring invalid Pico reply (Value Error)")
-                except (TypeError):
-                    self.get_logger().warning("Ignoring invalid Pico reply (Type Error")
-                except (UnicodeError):
-                    self.get_logger().warning("Ignoring invalid Pico reply (Unicode Error")
-                except (OverflowError):
-                    self.get_logger().warning("Ignoring invalid Pico reply (Overflow Error")
-                except (AssertionError):
-                    self.get_logger().warning("Ignoring invalid Pico reply (Assertion Error")
+                except ValueError as exc:
+                    self.get_logger().warning(f"Ignoring invalid Pico line {line!r}: {exc}")
         except Exception as exc:
             self.serial.close()
             self.serial = None
             self.last_pico_status = None
             self.publish_error("Serial read failed: " + str(exc))
-
-    def query_status(self):
-        self.write_command("STATUS")
-        self.publish_status()
 
     def publish_error(self, message):
         self.publish_status(error=message)

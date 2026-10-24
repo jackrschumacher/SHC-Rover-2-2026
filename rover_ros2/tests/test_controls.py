@@ -1,7 +1,6 @@
 from collections import deque
 import importlib
 import importlib.util
-import json
 from pathlib import Path
 import sys
 import types
@@ -13,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from rover_control.rover_arm import RoverArm
 from rover_control import protocol
+
+PICO_STATUS = b"T,1,0,0,30,1,1,1,0,90,0,180,90,0,180,0,-70,70,90,0,180,Ready\n"
 
 
 class ArmTests(unittest.TestCase):
@@ -302,7 +303,7 @@ class BridgeTests(unittest.TestCase):
     def test_motor_zero_is_allowed_without_connection(self):
         bridge, serial = self.serial_bridge()
         bridge.receive_motor(self.message(0.0))
-        self.assertEqual(json.loads(serial.writes[-1]), {"motor": "DC", "speed": 0})
+        self.assertEqual(serial.writes[-1], b"M,0\n")
         gui = self.gui_ros_module.GroundStationROS(Mock())
         gui.send_command({"motor": "DC", "speed": 0})
         self.assertEqual(gui.motor_publisher.messages[-1].data, 0.0)
@@ -345,18 +346,18 @@ class BridgeTests(unittest.TestCase):
         bridge, serial = self.serial_bridge()
         bridge.receive_heartbeat(self.message(True))
         bridge.receive_enable(self.message(True))
-        self.assertNotIn({"command": "ARM_ENABLE"}, [json.loads(frame) for frame in serial.writes])
-        serial.incoming = b'{"mode":"simulation","ready":true,"enabled":false}\n'
+        self.assertNotIn(b"E\n", serial.writes)
+        serial.incoming = PICO_STATUS
         bridge.poll()
         bridge.receive_enable(self.message(True))
-        self.assertIn({"command": "ARM_ENABLE"}, [json.loads(frame) for frame in serial.writes])
+        self.assertIn(b"E\n", serial.writes)
 
     def test_fragmented_and_bad_serial(self):
         bridge, serial = self.serial_bridge()
-        serial.incoming = b'not json\n{"mode":"hardware","ready":true,'
+        serial.incoming = b"not csv\nT,0,0,0,30,1,1,"
         bridge.poll()
         self.assertIsNone(bridge.last_pico_status)
-        serial.incoming = b'"enabled":false}\n'
+        serial.incoming = b"1,0,90,0,180,90,0,180,0,-70,70,90,0,180,Ready\n"
         bridge.poll()
         self.assertTrue(bridge.pico_online())
         self.now += 1.1
@@ -367,9 +368,7 @@ class BridgeTests(unittest.TestCase):
         bridge, serial = self.serial_bridge()
         packets = []
         gui = self.gui_ros_module.GroundStationROS(Mock(), packets.append)
-        packet = {"type": "sensors", "mode": "hardware", "elapsed_ms": 123,
-                  "data": {"temperature": 24.5, "pressure": 101.2, "accel_x": 0.1}}
-        serial.incoming = (json.dumps(packet) + "\n").encode()
+        serial.incoming = b"D,123,24.5,101.2,0.1,,,\n"
         bridge.poll()
         gui.receive_sensors(bridge.sensor_publisher.messages[-1])
         self.assertEqual(packets[0]["data"]["temperature"], 24.5)
@@ -380,12 +379,12 @@ class BridgeTests(unittest.TestCase):
 
     def test_bad_sensor_packet_is_not_published(self):
         bridge, serial = self.serial_bridge()
-        for data in ({"temperature": "bad"}, {"temperature": float("nan")}, {}):
-            serial.incoming = (json.dumps({"type": "sensors", "mode": "hardware", "data": data}) + "\n").encode()
+        for line in (b"D,1,bad,,,,,\n", b"D,1,nan,,,,,\n", b"D,1,,,,,,\n", b"D,1,24.5\n"):
+            serial.incoming = line
             bridge.poll()
         self.assertEqual(bridge.sensor_publisher.messages, [])
 
-    def test_integer_json_status_becomes_float_fields(self):
+    def test_integer_status_becomes_float_fields(self):
         msg = self.messages.status_message(self.bridge.status_data)
         self.assertIs(type(msg.motor_speed), float)
         self.assertIs(type(msg.motor_limit), float)
@@ -393,9 +392,11 @@ class BridgeTests(unittest.TestCase):
 
     def test_invalid_pico_status_does_not_refresh_connection(self):
         bridge, serial = self.serial_bridge()
-        for field, value in (("motor_speed", "bad"), ("sd_rows", -1), ("note", 5)):
-            packet = {"mode": "hardware", "ready": True, "enabled": False, field: value}
-            serial.incoming = (json.dumps(packet) + "\n").encode()
+        good = PICO_STATUS.split(b",")
+        for index, value in ((3, b"bad"), (8, b"-1"), (2, b"2"), (10, b"inf")):
+            fields = list(good)
+            fields[index] = value
+            serial.incoming = b",".join(fields)
             bridge.poll()
         self.assertIsNone(bridge.last_pico_status)
         self.assertIsNotNone(bridge.serial)
@@ -403,12 +404,12 @@ class BridgeTests(unittest.TestCase):
     def test_joint_and_motor_callbacks_write_pico_commands(self):
         bridge, serial = self.serial_bridge()
         bridge.receive_heartbeat(self.message(True))
-        serial.incoming = b'{"mode":"simulation","ready":true,"enabled":false}\n'
+        serial.incoming = PICO_STATUS
         bridge.poll()
         bridge.receive_joint(self.joint())
-        self.assertEqual(json.loads(serial.writes[-1]), {"axis": "Axis1", "angle": 95})
+        self.assertEqual(serial.writes[-1], b"A,0,95\n")
         bridge.receive_motor(self.message(-15.0))
-        self.assertEqual(json.loads(serial.writes[-1]), {"motor": "DC", "speed": -15})
+        self.assertEqual(serial.writes[-1], b"M,-15\n")
 
     def test_short_serial_write_marks_disconnect(self):
         bridge, serial = self.serial_bridge()

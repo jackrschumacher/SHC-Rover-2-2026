@@ -336,7 +336,7 @@ class GroundStation(QMainWindow):
             self.motor_direction = 0
         if "sd_ready" in status:
             if status["sd_ready"]:
-                self.sd_status.setText(f"SD logging: {status.get('sd_file', '')}, {status.get('sd_rows', 0)} rows")
+                self.sd_status.setText(f"SD logging: {status.get('sd_rows', 0)} rows")
             else:
                 self.sd_status.setText("SD logging: " + status.get("sd_error", "not ready"))
         else:

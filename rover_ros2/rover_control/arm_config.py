@@ -1,5 +1,5 @@
 # Settings for the computer-side simulation only.
-# Pico GPIO and calibration settings are in pico/rover_pico/config.h.
+# Pico GPIO and calibration settings are in the top of pico/rover_pico/rover_pico.ino.
 DRY_RUN = True
 try:
     from .protocol import AXES

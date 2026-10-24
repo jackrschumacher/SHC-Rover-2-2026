@@ -16,7 +16,7 @@ SENSOR_NAMES = {
 
 
 def status_message(data):
-    # The Pico sends JSON; ROS uses ArmStatus.
+    # Status dicts (parsed from the Pico or simulated) become ArmStatus.
     msg = ArmStatus()
     for name in STATUS_FIELDS:
         if name not in data:

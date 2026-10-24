@@ -275,7 +275,7 @@ class XboxROSIntegrationTests(unittest.TestCase):
         FakeNode.overrides = {'dry_run': False, 'serial_port': '/dev/test'}
         with patch.dict(sys.modules, serial=types.SimpleNamespace(Serial=lambda *a, **k: serial)):
             bridge = bridge_module.ArmBridge()
-        serial.incoming = b'{"type":"status","mode":"simulation","ready":true,"enabled":false}\n'
+        serial.incoming = b'T,1,0,0,30,1,1,1,0,90,0,180,90,0,180,0,-70,70,90,0,180,Ready\n'
         bridge.poll()
         gui.xbox.receive_status(status(), self.now)
         sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -294,21 +294,20 @@ class XboxROSIntegrationTests(unittest.TestCase):
             frame((10, 6))
             bridge.receive_heartbeat(gui.heartbeat.messages[-1])
             bridge.receive_enable(gui.enable_publisher.messages[-1])
-            self.assertEqual(json.loads(serial.writes[-1]), {'command': 'ARM_ENABLE'})
-            ack = dict(status(True), type='status', mode='simulation')
-            serial.incoming = (json.dumps(ack) + '\n').encode()
+            self.assertEqual(serial.writes[-1], b'E\n')
+            serial.incoming = b'T,1,1,0,30,1,1,1,0,90,0,180,90,0,180,0,-70,70,90,0,180,Arm enabled\n'
             bridge.poll()
             bridge.publish_status()
             gui.receive_status(bridge.publisher.messages[-1])
             frame((10,))
             frame((10,), [0, 0, 1, 0, 0, 0])
             bridge.receive_joint(gui.joint_publisher.messages[-1])
-            packet = json.loads(serial.writes[-1])
-            self.assertEqual(packet['axis'], 'Axis3A')
-            self.assertLess(packet['angle'], 0)
+            code, joint, angle = serial.writes[-1].decode().strip().split(',')
+            self.assertEqual((code, joint), ('A', '2'))  # Axis3A
+            self.assertLess(float(angle), 0)
             frame()
             bridge.receive_stop(gui.stop_publisher.messages[-1])
-            self.assertEqual(json.loads(serial.writes[-1]), {'command': 'STOP_ALL'})
+            self.assertEqual(serial.writes[-1], b'X\n')
         finally:
             sender.close()
             gui.close()

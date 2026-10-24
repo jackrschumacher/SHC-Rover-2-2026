@@ -14,7 +14,7 @@ The Pico runs Arduino C++. It makes the PWM signals, reads the sensors, and writ
 2. `GroundStationROS.send_command()` fills a `JointCommand`: joint = Axis1, angle_deg = 95.0.
 3. The ground station publishes that message on `/arm/joint_command`.
 4. The Orange Pi's subscriber calls `ArmBridge.receive_joint()` when the message arrives.
-5. The bridge checks the heartbeat and recent Pico reply, then sends an axis/angle JSON line over serial.
+5. The bridge checks the heartbeat and recent Pico reply, then sends a CSV line such as `A,0,95` (joint index, angle) over serial.
 6. The Pico checks that outputs are enabled, limits the target to the configured range, and updates that servo's pulse.
 7. The Pico reports its requested targets. The bridge publishes `ArmStatus`, which the GUI displays.
 
@@ -34,9 +34,9 @@ The Pico reads the BNO055 and BMP388 every 200 ms. It sends temperature, pressur
 
 The Pico also saves the latest readings once per second to a CSV file. This logging continues if the ground station disconnects. Missing values stay blank in the log and show as unavailable in the GUI.
 
-## Why there is still JSON
+## Serial format
 
-ROS messages are used between the laptop and Orange Pi. JSON is only the simple serial format between the Orange Pi and Pico. `ros_messages.py` converts between those formats. `protocol.py` checks the serial command values; it is a local file, not a pip package.
+ROS messages are used between the laptop and Orange Pi. Between the Orange Pi and Pico each serial line is CSV starting with a one-letter code; the full list is at the top of `rover_pico.ino`. `protocol.py` checks commands and converts them to and from those lines, and `ros_messages.py` converts the result to ROS messages. `protocol.py` is a local file, not a pip package.
 
 ## Stop and heartbeat
 
@@ -54,4 +54,4 @@ The GUI uses a Qt timer to let the ground station node process ROS callbacks. Th
 
 ## What is still unfinished
 
-GPIOs now match the supplied schematic. Mechanical must confirm servo layout, coupling, pulse widths, home angles, and movement limits in `config.h`. The defaults are a dry run. The full ROS build and hardware tests still need to be done on the actual laptop, Orange Pi, and Pico.
+GPIOs now match the supplied schematic. Mechanical must confirm servo layout, coupling, pulse widths, home angles, and movement limits in the configuration block at the top of `rover_pico.ino`. The defaults are a dry run. The full ROS build and hardware tests still need to be done on the actual laptop, Orange Pi, and Pico.
